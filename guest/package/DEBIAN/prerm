@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+# Removal must not silently disable the fail-closed policy or the tunnel.
+if [ "${1:-}" = remove ]; then
+    for unit in claude-guard.service wg-quick@wg-claude.service; do
+        if systemctl is-active --quiet "$unit" 2>/dev/null; then
+            echo "claude-wg-client: stop $unit only under networkingMode=none before removal" >&2
+            exit 1
+        fi
+    done
+fi
+exit 0

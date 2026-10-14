@@ -1,0 +1,91 @@
+#!/bin/sh
+set -eu
+
+name=claude-wg-client
+iface=wg-claude
+conf=/etc/wireguard/wg-claude.conf
+key=/etc/wireguard/claude.key
+pub=/etc/wireguard/claude.pub
+resolver=/etc/resolv.conf
+template=/usr/lib/claude-wg-client/wg-claude.conf
+policy=/usr/lib/claude-wg-client/claude-guard.nft
+
+fail() { printf '%s: ERROR: %s\n' "$name" "$*" >&2; exit 1; }
+need_root() { [ "$(id -u)" -eq 0 ] || fail 'must run as root'; }
+absent() { [ ! -e "$1" ] && [ ! -L "$1" ] || fail "$1 already exists; refusing to replace it"; }
+
+check_files() {
+    [ -f "$conf" ] && [ -f "$key" ] && [ -f "$pub" ] || fail 'client config/key files are missing'
+    [ "$(stat -c '%a' "$key")" = 600 ] || fail 'private key must be mode 600'
+    [ "$(stat -c '%a' "$conf")" = 600 ] || fail 'client config must be mode 600'
+    [ -f "$policy" ] && [ -f "$template" ] || fail 'package assets are missing'
+    cmp -s "$conf" "$template" || fail 'client config differs from the reviewed package template'
+    [ -f "$resolver" ] && [ "$(grep -Ec '^nameserver 1[.]1[.]1[.]1$' "$resolver")" -eq 1 ] || fail 'tunnel-only IPv4 resolver is missing'
+    [ "$(grep -Ec '^nameserver ' "$resolver")" -eq 1 ] || fail 'unexpected DNS resolver'
+    wg-quick strip "$iface" >/dev/null || fail 'invalid WireGuard client config'
+}
+
+init_client() {
+    need_root
+    [ "${1:-}" = --yes ] && [ "$#" -eq 1 ] || fail 'initialization requires --yes and must run under offline WSL networking'
+    absent "$conf"; absent "$key"; absent "$pub"; absent "$resolver"
+    if ip link show "$iface" >/dev/null 2>&1; then fail 'wg-claude interface is already present'; fi
+    [ -z "$(ip -4 route; ip -6 route)" ] || fail 'refusing initialization outside offline WSL networking'
+    [ -f "$template" ] || fail 'package config template missing'
+    install -d -m 0700 /etc/wireguard
+    umask 077
+    wg genkey > "$key"
+    chmod 0600 "$key"
+    wg pubkey < "$key" > "$pub"
+    chmod 0644 "$pub"
+    install -m 0600 "$template" "$conf"
+    printf '%s\n' 'nameserver 1.1.1.1' > "$resolver"
+    chmod 0644 "$resolver"
+    check_files
+    printf '%s: INITIALIZED without activation; private key remains in this guest\n' "$name"
+}
+
+check_guard() {
+    need_root
+    systemctl is-active --quiet claude-guard.service || fail 'guard service is not active'
+    nft list chain inet claude_guard output | grep -F 'policy drop' >/dev/null || fail 'output chain is not default-drop'
+    nft list chain inet claude_guard output | grep -F 'oifname "wg-claude"' >/dev/null || fail 'tunnel allow rule is missing'
+    nft list chain inet claude_guard output | grep -F 'ip daddr 203.0.113.10 udp dport 51820' >/dev/null || fail 'pinned endpoint rule is missing'
+    nft -c -f "$policy" >/dev/null || fail 'package guard policy fails syntax validation'
+    printf '%s: GUARD_OK\n' "$name"
+}
+
+arm_offline() {
+    need_root
+    [ "${1:-}" = --yes ] && [ "$#" -eq 1 ] || fail 'offline activation requires --yes'
+    [ -z "$(ip -4 route; ip -6 route)" ] || fail 'network routes exist; activate only under networkingMode=none'
+    ! ip link show eth0 >/dev/null 2>&1 || fail 'eth0 exists; refusing offline-only operation'
+    check_files
+    [ "$(systemctl is-enabled nftables.service 2>/dev/null || true)" = masked ] || fail 'stock nftables.service must be masked'
+    systemctl daemon-reload
+    systemctl enable --now claude-guard.service
+    check_guard
+    systemctl enable wg-quick@wg-claude.service
+    systemctl start wg-quick@wg-claude.service
+    wg show "$iface" >/dev/null 2>&1 || fail 'WireGuard interface did not start'
+    [ "$(wg show "$iface" fwmark)" = 0xc1a0 ] || fail 'unexpected WireGuard fwmark'
+    printf '%s: ARMED_OFFLINE; no connectivity or peer handshake claimed\n' "$name"
+}
+
+status() {
+    need_root
+    for unit in claude-guard.service wg-quick@wg-claude.service; do
+        if systemctl is-active --quiet "$unit"; then printf '%s=active\n' "$unit"; else printf '%s=inactive\n' "$unit"; fi
+    done
+    if wg show "$iface" >/dev/null 2>&1; then printf 'interface=up\n'; else printf 'interface=down\n'; fi
+    if nft list chain inet claude_guard output >/dev/null 2>&1; then printf 'guard_table=present\n'; else printf 'guard_table=missing\n'; fi
+}
+
+case "${1:-}" in
+    init-client) shift; init_client "$@" ;;
+    check-files) [ "$#" -eq 1 ] || fail 'unexpected arguments'; need_root; check_files; printf '%s: FILES_OK\n' "$name" ;;
+    check-guard) [ "$#" -eq 1 ] || fail 'unexpected arguments'; check_guard ;;
+    arm-offline) shift; arm_offline "$@" ;;
+    status) [ "$#" -eq 1 ] || fail 'unexpected arguments'; status ;;
+    *) printf 'Usage: claude-wg-client {status|check-files|check-guard|init-client --yes|arm-offline --yes}\n' >&2; exit 2 ;;
+esac

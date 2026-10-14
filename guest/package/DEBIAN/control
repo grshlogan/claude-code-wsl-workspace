@@ -1,0 +1,11 @@
+Package: claude-wg-client
+Version: 0.1.0
+Section: net
+Priority: optional
+Architecture: all
+Depends: wireguard-tools, nftables, iproute2, procps, systemd
+Maintainer: Claude client owner
+Description: Fail-closed WireGuard client policy for Debian 12 WSL2
+ Installs a scoped early egress guard and a key-loading drop-in around the
+ distribution-provided wg-quick service. Installation never starts a service,
+ writes a key, replaces a resolver, or changes a live network route.

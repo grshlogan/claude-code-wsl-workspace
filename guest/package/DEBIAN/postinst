@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+# Install files only. No automatic network, key, resolver or service changes.
+if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload || true; fi
+exit 0

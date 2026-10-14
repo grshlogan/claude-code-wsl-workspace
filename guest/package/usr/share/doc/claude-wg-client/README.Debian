@@ -1,0 +1,30 @@
+claude-wg-client (Debian 12 WSL2)
+================================
+
+This is the CLIENT package; the Debian 12 VPS uses the separate server-side
+claude-wg-peer package. Do not install the server package in this WSL instance.
+
+Installing this package does not generate a key, modify /etc/resolv.conf, or
+start the network. The target WSL instance must be bootstrapped under the
+Windows-wide networkingMode=none setting. Only then, as root, run:
+
+    claude-wg-client init-client --yes
+    claude-wg-client check-files
+    claude-wg-client arm-offline --yes
+    claude-wg-client check-guard
+
+The private key remains in this WSL instance at /etc/wireguard/claude.key.
+Never export it to Windows, a package archive, Git or chat. Before first use,
+run guest/configure-endpoint.sh so the packaged endpoint and peer public key
+match your own server; arming offline does not establish an authenticated
+tunnel until the VPS side has registered this client's public key.
+
+The guard and tunnel are explicitly enabled for future starts only after the
+guard passes checks. Windows WSL Hyper-V firewall, DNS-tunneling/autoProxy/
+localhostForwarding settings and WSL startup ordering must be verified before
+switching global WSL networking back to NAT. All WSL distributions share the
+network namespace. A Windows/WSL administrator can bypass these protections.
+
+Removal under NAT is refused while either service is active. Never stop the
+guard to obtain direct Internet access. Package removal and purge preserve the
+root-owned key, configuration and resolver; no automatic fallback is provided.

@@ -1,0 +1,17 @@
+#!/usr/sbin/nft -f
+# Temporary WSL-wide guest-only loopback exception. Remove the systemd
+# override and this file to restore the packaged default-deny policy.
+# Do not flush any other nftables table in the shared WSL network namespace.
+flush table inet claude_guard
+
+table inet claude_guard {
+    chain output {
+        type filter hook output priority -300; policy drop;
+        meta nfproto ipv4 oifname "lo" ip daddr 127.0.0.0/8 counter accept
+        meta nfproto ipv6 oifname "lo" ip6 daddr ::1 counter accept
+        meta nfproto ipv4 oifname "wg-claude" counter accept
+        meta nfproto ipv4 meta mark 0xc1a0 ip daddr 203.0.113.10 udp dport 51820 counter accept
+        meta nfproto ipv6 counter drop
+        counter drop
+    }
+}

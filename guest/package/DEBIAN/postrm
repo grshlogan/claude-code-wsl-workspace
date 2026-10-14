@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+# dpkg removes package files. Preserve root-only key, live config and resolver.
+if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload || true; fi
+exit 0

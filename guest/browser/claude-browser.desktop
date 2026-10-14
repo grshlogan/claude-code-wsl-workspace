@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Claude Debian 12 Firefox ESR
+Comment=Firefox ESR in Debian 12 WSL using a dedicated Linux-only profile
+Exec=/home/claude/.local/bin/claude-browser %u
+TryExec=/home/claude/.local/bin/claude-browser
+Icon=firefox-esr
+Terminal=false
+Categories=Network;WebBrowser;
+MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
+NoDisplay=true

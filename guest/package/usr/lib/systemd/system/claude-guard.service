@@ -1,0 +1,15 @@
+[Unit]
+Description=WSL-wide Claude VPS-only egress guard (Debian 12 client)
+DefaultDependencies=no
+Before=sysinit.target network-pre.target
+Conflicts=nftables.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/sh -c '/usr/sbin/nft list table inet claude_guard >/dev/null 2>&1 || /usr/sbin/nft add table inet claude_guard'
+ExecStart=/usr/sbin/nft -f /usr/lib/claude-wg-client/claude-guard.nft
+ExecReload=/usr/sbin/nft -f /usr/lib/claude-wg-client/claude-guard.nft
+
+[Install]
+RequiredBy=sysinit.target

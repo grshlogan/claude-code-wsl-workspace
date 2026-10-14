@@ -1,0 +1,14 @@
+#!/usr/sbin/nft -f
+# The service creates this table if missing. This transaction changes only
+# inet claude_guard; never flush or destroy the WSL-wide ruleset.
+flush table inet claude_guard
+
+table inet claude_guard {
+    chain output {
+        type filter hook output priority -300; policy drop;
+        meta nfproto ipv4 oifname "wg-claude" counter accept
+        meta nfproto ipv4 meta mark 0xc1a0 ip daddr 203.0.113.10 udp dport 51820 counter accept
+        meta nfproto ipv6 counter drop
+        counter drop
+    }
+}

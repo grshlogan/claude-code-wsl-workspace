@@ -1,0 +1,4 @@
+[Default Applications]
+x-scheme-handler/http=claude-browser.desktop
+x-scheme-handler/https=claude-browser.desktop
+text/html=claude-browser.desktop
