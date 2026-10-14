@@ -1,0 +1,21 @@
+# Host-side local configuration (never commit real values)
+host/lib/config.ps1
+
+# Runtime state, logs, diagnostics and transient markers
+host/**/logs/
+host/runtime-state/
+host/diagnostics/network-test-approved.flag
+*.log
+*.jsonl
+*.jsonl.*
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+
+# OS junk
+Thumbs.db
+.DS_Store
