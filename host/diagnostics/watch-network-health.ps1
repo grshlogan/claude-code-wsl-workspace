@@ -116,7 +116,7 @@ function Invoke-NetworkSnapshot {
                         Exit-ClaudeLifecycle $mutex
                         $lease.held = $false
                     } -Arguments @(
-                        '-d', $WslDistro, '-u', 'root', '--exec', 'python3', '-I', '-')
+                        '-d', $WslDistro, '-u', 'root', '--exec', 'python3', '-I', '-', $VpsEndpointIp)
                     $record.guest_call_exit = $probe.ExitCode
                     try {
                         $record.guest = $probe.Text | ConvertFrom-Json

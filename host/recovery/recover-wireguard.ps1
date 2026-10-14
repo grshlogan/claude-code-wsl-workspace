@@ -142,7 +142,7 @@ function Get-RecoveryGuest {
     Assert-RecoveryAvailable
     $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\diagnostics\guest-network-snapshot.py') -Raw
     $call = Invoke-NativeBounded -FilePath 'wsl.exe' -TimeoutSeconds 100 -InputText $source -Arguments @(
-        '-d', $WslDistro, '-u', 'root', '--exec', 'python3', '-I', '-')
+        '-d', $WslDistro, '-u', 'root', '--exec', 'python3', '-I', '-', $VpsEndpointIp)
     try { $guest = $call.Text | ConvertFrom-Json }
     catch { throw 'guest-snapshot-unavailable' }
     Write-RecoveryEvent 'guest-snapshot' @{ transport_exit = $call.ExitCode; guest = $guest }

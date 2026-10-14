@@ -72,6 +72,8 @@ notepad lib\config.ps1
 4. **ROUTE_AND_EXIT** — 路由走 wg 接口且出口 IP == `$VpsEndpointIp`
 5. 全过才开 shell；任何一道失败即退出，绝不"自动修复"
 
-## 环境变量
+## 环境变量与参数
 
-Python 诊断脚本通过 `CLAUDE_VPS_ENDPOINT_IP` 读取期望出口 IP（默认为文档示例 IP）。
+Python 诊断脚本的期望出口 IP 通过**命令行首参数**传入（调用方从 config 自动带出）；
+`udp-egress-probe.py` 另接受 `--expected-exit`。也支持 `CLAUDE_VPS_ENDPOINT_IP`
+环境变量作为后备。缺省值为文档示例 IP，仅适合只读检查。

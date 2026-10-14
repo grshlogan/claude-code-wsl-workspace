@@ -330,7 +330,12 @@ def main():
     parser.add_argument("--port", type=int)
     parser.add_argument("--mode", choices=MODES)
     parser.add_argument("--local")
+    parser.add_argument("--expected-exit", default=EXPECTED_EXIT,
+                        help="expected public exit IP (default: env or documentation IP)")
     args = parser.parse_args()
+    if args.expected_exit:
+        global EXPECTED_EXIT
+        EXPECTED_EXIT = args.expected_exit
     try:
         if args.action == "metadata":
             record = metadata()

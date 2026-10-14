@@ -6,13 +6,19 @@ Never read private keys, wg configuration, Claude state, or process arguments.
 import ipaddress
 import json
 import os
+import sys
 from pathlib import Path
 import pwd
 import subprocess
 import time
 
 # Expected public exit is the configured VPS endpoint (NAT'ed source address).
-EXPECTED_EXIT = os.environ.get("CLAUDE_VPS_ENDPOINT_IP", "203.0.113.10")
+# The host passes it as the first argument when piping this script into WSL via
+# stdin: Windows environment variables do not cross into a `wsl --exec` process.
+EXPECTED_EXIT = (
+    sys.argv[1] if len(sys.argv) > 1
+    else os.environ.get("CLAUDE_VPS_ENDPOINT_IP", "203.0.113.10")
+)
 
 
 def run(arguments, timeout=5, unprivileged=False):
