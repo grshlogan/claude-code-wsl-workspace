@@ -1,0 +1,250 @@
+#!/bin/sh
+set -eu
+
+name=claude-wg-peer
+iface=wg-claude
+conf=/etc/wireguard/wg-claude.conf
+key=/etc/wireguard/wg-claude.key
+pub=/etc/wireguard/wg-claude.pub
+policy=/usr/lib/claude-wg-peer/forward.nft
+forward_unit=wg-claude-forward.service
+legacy_unit=/etc/systemd/system/wg-claude-forward.service
+legacy_policy=/etc/nftables.d/wg-claude-forward.nft
+legacy_dropin=/etc/systemd/system/wg-quick@wg-claude.service.d/10-private-key.conf
+package_dropin=/usr/lib/systemd/system/wg-quick@wg-claude.service.d/10-private-key.conf
+
+fail() { printf '%s: ERROR: %s\n' "$name" "$*" >&2; exit 1; }
+need_root() { [ "$(id -u)" -eq 0 ] || fail 'must run as root'; }
+active() { systemctl is-active --quiet "$1" 2>/dev/null; }
+value_or_null() { v=$1; [ -n "$v" ] && printf '%s' "$v" || printf 'null'; }
+
+check_paths() {
+    [ -f "$conf" ] && [ ! -L "$conf" ] || fail "missing or symlinked $conf"
+    [ -f "$key" ] && [ ! -L "$key" ] || fail "missing or symlinked $key"
+    [ "$(stat -c '%a:%u' "$conf")" = 600:0 ] || fail "$conf must be root-owned mode 600"
+    [ "$(stat -c '%a:%u' "$key")" = 600:0 ] || fail "$key must be root-owned mode 600"
+    [ -f "$policy" ] || fail "missing $policy"
+    [ -f "$package_dropin" ] || fail "missing $package_dropin"
+    [ -f "/usr/lib/systemd/system/$forward_unit" ] || fail "missing forward unit"
+}
+
+# Only the two documented interface/peer keys are allowed. Never echo the
+# configuration: the private key is supplied by the systemd drop-in instead.
+config_peer() {
+    awk '
+        function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+        /^[[:space:]]*(#|$)/ { next }
+        /^[[:space:]]*\[/ {
+            section = trim($0)
+            if (section == "[Interface]") { iface_count++; next }
+            if (section == "[Peer]") { peer_count++; next }
+            bad = 1; exit
+        }
+        {
+            split_at = index($0, "=")
+            if (!split_at) { bad = 1; exit }
+            field = trim(substr($0, 1, split_at - 1))
+            value = trim(substr($0, split_at + 1))
+            sub(/[[:space:]]+#.*$/, "", value)
+            if (section == "[Interface]") {
+                if (field == "Address" && value == "10.77.42.1/30") address_count++
+                else if (field == "ListenPort" && value == "51820") port_count++
+                else bad = 1
+            } else if (section == "[Peer]") {
+                if (field == "PublicKey" && length(value) == 44 && value ~ /^[A-Za-z0-9+\/]+=$/) { pub_count++; peer_key = value }
+                else if (field == "AllowedIPs" && value == "10.77.42.2/32") allowed_count++
+                else bad = 1
+            } else bad = 1
+            if (bad) exit
+        }
+        END {
+            if (bad || iface_count != 1 || peer_count != 1 || address_count != 1 ||
+                port_count != 1 || pub_count != 1 || allowed_count != 1) exit 1
+            print peer_key
+        }
+    ' "$conf" || fail 'WireGuard config contains an unexpected or duplicate field'
+}
+
+check_peer_contract() {
+    command -v wg >/dev/null 2>&1 || fail 'wg is unavailable'
+    wg show "$iface" >/dev/null 2>&1 || fail "$iface is not active"
+    [ "$(ip -4 -o addr show dev "$iface" | awk '{print $4}')" = 10.77.42.1/30 ] || fail 'interface address must be 10.77.42.1/30'
+    [ "$(wg show "$iface" listen-port)" = 51820 ] || fail "$iface listen port is not 51820"
+    expected_peer=$(config_peer)
+    [ "$(wg show "$iface" peers)" = "$expected_peer" ] || fail 'live peer public key differs from the sole config peer'
+    allowed=$(wg show "$iface" allowed-ips)
+    [ "$(printf '%s\n' "$allowed" | awk -v p="$expected_peer" 'NF == 2 && $1 == p && $2 == "10.77.42.2/32" { matched++ } NF { total++ } END { print (matched == 1 && total == 1) ? 1 : 0 }')" = 1 ] || fail 'expected exactly one protected /32 peer'
+}
+
+check_firewall() {
+    command -v nft >/dev/null 2>&1 || fail 'nft is unavailable'
+    nft -c -f "$policy" >/dev/null || fail 'nft policy syntax check failed'
+    forward=$(nft list table inet wg_claude_forward 2>/dev/null | sed -E 's/counter packets [0-9]+ bytes [0-9]+/counter/') || fail 'forward table is missing'
+    nat=$(nft list table ip wg_claude_nat 2>/dev/null) || fail 'NAT table is missing'
+    expected_forward=$(cat <<'NFT'
+table inet wg_claude_forward {
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+		iifname "wg-claude" oifname "eth0" ip saddr 10.77.42.2 ip daddr != 10.77.42.0/30 ct state established,new counter accept
+		iifname "eth0" oifname "wg-claude" ip daddr 10.77.42.2 ct state established,related counter accept
+	}
+}
+NFT
+)
+    expected_nat=$(cat <<'NFT'
+table ip wg_claude_nat {
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		iifname "wg-claude" oifname "eth0" ip saddr 10.77.42.2 ip daddr != 10.77.42.0/30 masquerade
+	}
+}
+NFT
+)
+    [ "$forward" = "$expected_forward" ] || fail 'forward table differs from the exact protected policy'
+    [ "$nat" = "$expected_nat" ] || fail 'NAT table differs from the exact protected policy'
+}
+
+check_system() {
+    active wg-quick@wg-claude.service || fail 'wg-quick@wg-claude.service is not active'
+    active "$forward_unit" || fail "$forward_unit is not active"
+    [ "$(sysctl -n net.ipv4.ip_forward)" = 1 ] || fail 'IPv4 forwarding is not enabled'
+    ip -4 route show default | grep -F 'default' >/dev/null || fail 'IPv4 default route is missing'
+    ss -H -ltn sport = :22 | grep -q . || fail 'SSH TCP 22 is not listening'
+}
+
+check_legacy_unit() {
+    # SHA-256 of the exact, public historical manual templates. These files
+    # are validation references only; no old runtime is bundled or retained.
+    [ -f "$legacy_unit" ] && [ ! -L "$legacy_unit" ] || fail 'missing or symlinked legacy forward unit'
+    [ -f "$legacy_policy" ] && [ ! -L "$legacy_policy" ] || fail 'missing or symlinked legacy nft policy'
+    [ -f "$legacy_dropin" ] && [ ! -L "$legacy_dropin" ] || fail 'missing or symlinked legacy key drop-in'
+    [ "$(sha256sum "$legacy_unit" | awk '{print $1}')" = 61cbf5dd6c271931bdaf96a466a1b3ddd7fce8aac18575cee31a1c4f535390dc ] || fail 'legacy forward unit differs; refusing to delete it'
+    [ "$(sha256sum "$legacy_policy" | awk '{print $1}')" = c81ff57c958d9d83faf66e004c209238b0f68e8f91ed65d159851dbaf5454930 ] || fail 'legacy nft policy differs; refusing to delete it'
+    cmp -s "$legacy_dropin" "$package_dropin" || fail 'legacy key drop-in differs; refusing to delete it'
+    [ "$(realpath "$(systemctl show -P FragmentPath "$forward_unit")")" = "$(realpath "$legacy_unit")" ] || fail 'active forwarding unit is not the reviewed legacy unit'
+}
+
+init_server() {
+    need_root
+    [ "${1:-}" = --yes ] || fail 'initialization writes a new server key/config; pass --yes explicitly'
+    [ ! -e "$conf" ] || fail "$conf already exists; use adopt-existing for a live deployment"
+    [ ! -e "$key" ] && [ ! -e "$pub" ] || fail 'server key material already exists; refusing to overwrite it'
+    ip link show "$iface" >/dev/null 2>&1 && fail "$iface already exists; refusing to create a second path"
+    install -d -m 0700 /etc/wireguard
+    umask 077
+    wg genkey > "$key"
+    chmod 600 "$key"
+    wg pubkey < "$key" > "$pub"
+    chmod 644 "$pub"
+    cat > "$conf" <<'CFG'
+[Interface]
+Address = 10.77.42.1/30
+ListenPort = 51820
+CFG
+    chmod 600 "$conf"
+    systemctl daemon-reload
+    printf '%s: INITIALIZED inactive server contract; peer registration and activation remain explicit\n' "$name"
+}
+
+valid_public_key() {
+    key_value=$(tr -d '\r\n' < "$1")
+    [ "$(printf '%s' "$key_value" | wc -c)" = 44 ] || fail 'peer public key must be 44 base64 characters'
+    printf '%s' "$key_value" | base64 -d 2>/dev/null | wc -c | grep -qx 32 || fail 'peer public key is not a 32-byte base64 key'
+    printf '%s' "$key_value"
+}
+
+register_peer() {
+    need_root
+    [ "${1:-}" = --public-key-file ] || fail 'use --public-key-file FILE --yes [--restart]'
+    peer_file=${2:-}
+    [ -n "$peer_file" ] && [ -f "$peer_file" ] || fail 'peer public-key file is missing'
+    [ "${3:-}" = --yes ] || fail 'registration changes the live peer contract; pass --yes explicitly'
+    check_paths
+    ip link show "$iface" >/dev/null 2>&1 && fail 'register-peer expects an inactive fresh server; use adopt-existing for active state'
+    grep -q '^\[Peer\]' "$conf" && fail 'a peer is already registered; refusing a second peer'
+    peer_key=$(valid_public_key "$peer_file")
+    cat >> "$conf" <<CFG
+
+[Peer]
+PublicKey = $peer_key
+AllowedIPs = 10.77.42.2/32
+CFG
+    chmod 600 "$conf"
+    printf '%s: REGISTERED one peer in inactive config; activation remains explicit\n' "$name"
+    if [ "${4:-}" = --restart ]; then
+        systemctl daemon-reload
+        systemctl restart wg-quick@wg-claude.service
+        systemctl restart "$forward_unit"
+        verify
+    fi
+}
+
+status_json() {
+    need_root
+    iface_state=down; wg show "$iface" >/dev/null 2>&1 && iface_state=up
+    wg_state=inactive; active wg-quick@wg-claude.service && wg_state=active
+    forward_state=inactive; active "$forward_unit" && forward_state=active
+    if [ "$iface_state" = up ]; then
+        port=$(wg show "$iface" listen-port)
+        peer=$(wg show "$iface" allowed-ips | awk '$2 == "10.77.42.2/32" { print $1; exit }')
+        allowed=$(wg show "$iface" allowed-ips | awk '$2 == "10.77.42.2/32" { print $2; exit }')
+        handshake=$(wg show "$iface" latest-handshakes | awk -v p="$peer" '$1 == p && $2 > 0 { print $2; exit }')
+        transfer=$(wg show "$iface" transfer | awk -v p="$peer" '$1 == p { print $2 "," $3; exit }')
+    else
+        port=; allowed=; handshake=; transfer=
+    fi
+    printf '{"package":"%s","interface":"%s","interface_state":"%s","wg_service":"%s","forward_service":"%s","listen_port":%s,"allowed_ip":"%s","latest_handshake_epoch":%s,"transfer_bytes":"%s","ipv4_forwarding":%s}\n' \
+        "$name" "$iface" "$iface_state" "$wg_state" "$forward_state" \
+        "$(value_or_null "${port:-}")" "${allowed:-}" "$(value_or_null "${handshake:-}")" "${transfer:-}" "$(sysctl -n net.ipv4.ip_forward 2>/dev/null || printf '?')"
+}
+
+verify() {
+    check_paths
+    check_peer_contract
+    check_firewall
+    check_system
+    printf '%s: VERIFIED protected peer, forwarding/NAT tables, SSH and default route\n' "$name"
+}
+
+adopt_existing() {
+    need_root
+    [ "${1:-}" = --yes ] && [ "${2:-}" = --restart ] && [ "$#" -eq 2 ] || fail 'adoption requires --yes --restart in a maintenance window'
+    check_paths
+    check_peer_contract
+    check_firewall
+    check_system
+    check_legacy_unit
+    rm -f -- "$legacy_unit" "$legacy_policy" "$legacy_dropin"
+    rmdir --ignore-fail-on-non-empty /etc/systemd/system/wg-quick@wg-claude.service.d 2>/dev/null || true
+    rmdir --ignore-fail-on-non-empty /etc/nftables.d 2>/dev/null || true
+    systemctl daemon-reload
+    systemctl restart wg-quick@wg-claude.service
+    systemctl restart "$forward_unit"
+    verify
+    systemctl enable "$forward_unit"
+    printf '%s: ADOPTED existing protected runtime; legacy runtime files removed\n' "$name"
+}
+
+check_firewall_only() { need_root; check_paths; check_firewall; printf '%s: FIREWALL_OK\n' "$name"; }
+check_peer_only() { need_root; check_paths; check_peer_contract; printf '%s: PEER_OK\n' "$name"; }
+
+case "${1:-}" in
+    status) [ "${2:-}" = --json ] && status_json || { need_root; status_json; } ;;
+    verify) verify ;;
+    check-firewall) check_firewall_only ;;
+    check-peer) check_peer_only ;;
+    init-server) init_server "${2:-}" ;;
+    register-peer) register_peer "${2:-}" "${3:-}" "${4:-}" "${5:-}" ;;
+    adopt-existing) adopt_existing "${2:-}" "${3:-}" ;;
+    *)
+        cat >&2 <<'USAGE'
+Usage:
+  claude-wg-peer status [--json]
+  claude-wg-peer verify | check-firewall | check-peer
+  claude-wg-peer init-server --yes
+  claude-wg-peer register-peer --public-key-file FILE --yes [--restart]
+  claude-wg-peer adopt-existing --yes --restart
+USAGE
+        exit 2
+        ;;
+esac

@@ -1,0 +1,23 @@
+#!/usr/sbin/nft -f
+# Dedicated IPv4-only VPS forwarding and NAT for the single Claude peer.
+# Atomically create missing tables or flush only our existing tables before
+# adding the exact rules. Never flush unrelated nftables tables.
+add table inet wg_claude_forward
+flush table inet wg_claude_forward
+add table ip wg_claude_nat
+flush table ip wg_claude_nat
+
+table inet wg_claude_forward {
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+        iifname "wg-claude" oifname "eth0" meta nfproto ipv4 ip saddr 10.77.42.2 ip daddr != 10.77.42.0/30 ct state new,established counter accept
+        iifname "eth0" oifname "wg-claude" meta nfproto ipv4 ip daddr 10.77.42.2 ct state established,related counter accept
+    }
+}
+
+table ip wg_claude_nat {
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        iifname "wg-claude" oifname "eth0" ip saddr 10.77.42.2 ip daddr != 10.77.42.0/30 masquerade
+    }
+}

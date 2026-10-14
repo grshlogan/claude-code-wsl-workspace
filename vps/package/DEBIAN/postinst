@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+# Static package installation only. Do not activate or restart a network path.
+if [ "$(id -u)" -ne 0 ]; then
+    echo 'claude-wg-peer: postinst must run as root' >&2
+    exit 1
+fi
+systemctl daemon-reload || true
+exit 0

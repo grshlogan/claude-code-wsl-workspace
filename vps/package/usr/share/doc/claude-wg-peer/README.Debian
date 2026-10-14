@@ -1,0 +1,33 @@
+claude-wg-peer
+==============
+
+The package wraps the distribution-provided wg-quick@wg-claude.service. It does
+not own the live /etc/wireguard/wg-claude.conf or either private key. Installation
+does not enable, restart or modify the running tunnel.
+
+The package-owned forward unit, nft policy and key-loading drop-in are installed
+as static files. They become runtime state only after an owner explicitly runs
+`claude-wg-peer adopt-existing --yes --restart` for an existing deployment, or
+uses the explicit fresh-server sequence `init-server`, `register-peer` and a
+separate service activation. There is no automatic failback or legacy runtime
+path.
+
+The files under /usr/lib/claude-wg-peer/ are non-secret package assets. Never
+copy a historical no-peer server config over a live WireGuard config. Do not use
+Cockpit's NetworkManager editor to manage this interface.
+
+Before adoption, capture a verified backup of the live configuration on the VPS
+under root-only permissions and coordinate maintenance with the WSL client
+owner. Adoption requires the three original manual runtime files, checks the unit and
+policy against the reviewed historical template SHA-256 values, verifies that
+the drop-in matches the package, and removes only those exact matches after
+live peer, address, SSH/route and nft checks. An unknown or partial legacy
+runtime is rejected before any deletion or service restart. The read-only
+`status`, `verify`, `check-firewall` and `check-peer` commands never print key
+contents. Nothing in this package grants other VPS agents permission to modify
+the protected peer.
+
+Removal while a service is active is deliberately refused. dpkg can leave its
+selection at "deinstall ok installed" after such a refusal; reinstall the
+reviewed package version to restore "install ok installed" before further
+package operations. Do not stop a live peer merely to satisfy package removal.

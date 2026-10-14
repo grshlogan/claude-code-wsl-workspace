@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+if [ "${1:-}" = purge ]; then
+    # Preserve the live WireGuard config and keys by design. Remove only
+    # package-owned runtime artifacts; no nft flush and no service restart.
+    # The package-owned drop-in lives under /usr/lib and is removed by dpkg.
+    # Never remove a hand-written /etc drop-in during package removal.
+    systemctl daemon-reload || true
+fi
+exit 0

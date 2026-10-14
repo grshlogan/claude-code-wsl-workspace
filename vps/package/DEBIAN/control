@@ -1,0 +1,12 @@
+Package: claude-wg-peer
+Version: 0.1.3
+Section: net
+Priority: optional
+Architecture: all
+Depends: wireguard-tools, nftables, iproute2, procps, systemd
+Maintainer: Claude peer owner
+Description: Protected WireGuard peer contract for the Claude WSL egress
+ This package owns the Claude-specific systemd drop-in, forwarding service,
+ scoped nftables policy, and read-only validation commands around the
+ distribution-provided wg-quick implementation. It does not replace
+ wireguard-tools, NetworkManager, or the live peer configuration.

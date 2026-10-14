@@ -1,0 +1,14 @@
+[Unit]
+Description=Scoped IPv4 forwarding and NAT for Claude WireGuard peer
+Requires=wg-quick@wg-claude.service
+After=wg-quick@wg-claude.service systemd-sysctl.service
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/wg-claude-forward.nft
+ExecStartPost=/usr/sbin/sysctl -w net.ipv4.ip_forward=1
+
+[Install]
+WantedBy=multi-user.target

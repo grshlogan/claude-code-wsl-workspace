@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+# Refuse implicit service teardown. The owner must stop/adopt the protected
+# peer explicitly before removing the package.
+if [ "${1:-remove}" = remove ]; then
+    if systemctl is-active --quiet wg-claude-forward.service 2>/dev/null; then
+        echo 'claude-wg-peer: stop wg-claude-forward.service explicitly before removal' >&2
+        exit 1
+    fi
+    if systemctl is-active --quiet wg-quick@wg-claude.service 2>/dev/null; then
+        echo 'claude-wg-peer: stop wg-quick@wg-claude.service explicitly before removal' >&2
+        exit 1
+    fi
+fi
+exit 0
