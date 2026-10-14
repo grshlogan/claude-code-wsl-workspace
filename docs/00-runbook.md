@@ -8,16 +8,16 @@
 
 ## 总览
 
-| 阶段 | 内容 | 深入文档 | 预计耗时 |
-|---|---|---|---|
-| A | 准备与自检（无系统变更） | — | 10 min |
-| B | VPS 服务端（部分） | [02](02-vps.md) | 15 min |
-| C | Windows 宿主进入离线状态 | [03](03-windows-host.md) | 5 min |
-| D | 客户端导入与硬化（离线） | [04](04-guest-debian.md) | 20 min |
-| E | 客户端包与密钥（离线） | [04](04-guest-debian.md) | 15 min |
-| F | VPS 登记公钥 + 客户端点火（离线） | [02](02-vps.md) | 10 min |
-| G | 恢复 NAT + 首次门卫验收 | [03](03-windows-host.md) | 5 min |
-| H | 端到端验收 | [07](07-verification.md) | 15 min |
+| 阶段 | 内容 | 深入文档 |
+|---|---|---|
+| A | 准备与自检（无系统变更） | — |
+| B | VPS 服务端（部分） | [02](02-vps.md) |
+| C | Windows 宿主进入离线状态 | [03](03-windows-host.md) |
+| D | 客户端导入与硬化（离线） | [04](04-guest-debian.md) |
+| E | 客户端包与密钥（离线） | [04](04-guest-debian.md) |
+| F | VPS 登记公钥 + 客户端点火（离线） | [02](02-vps.md) |
+| G | 恢复 NAT + 首次门卫验收 | [03](03-windows-host.md) |
+| H | 端到端验收 | [07](07-verification.md) |
 
 ---
 
