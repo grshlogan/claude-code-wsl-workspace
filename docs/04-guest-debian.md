@@ -1,3 +1,5 @@
+> 本篇是 Runbook [阶段 D/E](00-runbook.md) 的深入参考；执行顺序见 Runbook。
+
 # Debian 12 客户端部署
 
 > 前置阅读：[03-windows-host.md](03-windows-host.md) 已完成到"离线引导状态"

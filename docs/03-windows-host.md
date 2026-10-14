@@ -1,3 +1,5 @@
+> 本篇是 Runbook [阶段 C/G](00-runbook.md) 的深入参考；执行顺序见 Runbook。
+
 # Windows 宿主部署
 
 > 前置阅读：[01-architecture.md](01-architecture.md) · 建议先完成 [02-vps.md](02-vps.md) 的第 1–3 步（拿到服务器公钥）

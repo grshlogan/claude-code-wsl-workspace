@@ -71,21 +71,31 @@
 
 ## 快速开始
 
-完整流程见 [docs/](docs/)，按顺序：
+**第一次部署（或让 AI 代理代为部署）只需按一份文件执行：**
 
-1. [架构与安全模型](docs/01-architecture.md) —— 先读这个，理解每层防线
-2. [VPS 服务端](docs/02-vps.md) —— 准备一台 Debian 12 VPS，装 `claude-wg-peer`
-3. [Windows 宿主](docs/03-windows-host.md) —— WSL2 配置、Hyper-V 门卫、`config.ps1`
-4. [Debian 客户端](docs/04-guest-debian.md) —— 离线导入发行版、装客户端包、点火
-5. [浏览器与 GitHub](docs/05-browser-and-github.md) —— Firefox profile + keyring OAuth
-6. [开发工具链](docs/06-toolchain.md) —— Python/Node/Rust/C 基线
-7. [验收与排障](docs/07-verification.md) —— 每日门卫、出口验证、常见故障
+👉 **[docs/00-runbook.md](docs/00-runbook.md)** —— 唯一执行路径，8 个阶段（A~H），
+每一步给出【命令】【预期输出】【失败时排查链接】三要素，阶段末尾有检查点清单。
+
+AI 代理请先读 [AGENTS.md](AGENTS.md)（执行协议与红线）。
+
+各阶段的深入参考（遇到问题再查，不要通读）：
+
+1. [架构与安全模型](docs/01-architecture.md) —— 理解每层防线
+2. [VPS 服务端](docs/02-vps.md) —— Runbook 阶段 B/F
+3. [Windows 宿主](docs/03-windows-host.md) —— 阶段 C/G
+4. [Debian 客户端](docs/04-guest-debian.md) —— 阶段 D/E
+5. [浏览器与 GitHub](docs/05-browser-and-github.md) —— 部署完成后的凭据决策
+6. [开发工具链](docs/06-toolchain.md) —— 可选
+7. [验收与排障](docs/07-verification.md) —— 阶段 H 之后的日常
 
 ## 目录结构
 
 ```
 ├── README.md                 本文件
-├── docs/                     中文部署文档（按编号阅读）
+├── AGENTS.md                 AI 代理守则（执行协议与红线）
+├── docs/
+│   ├── 00-runbook.md         ★ 唯一执行路径（按阶段 A~H 顺序执行）
+│   ├── 01~07-*.md            各阶段深入参考
 ├── host/                     Windows 宿主侧脚本（PowerShell/cmd）
 │   ├── start.cmd             日常入口
 │   ├── lib/                  共享配置与公共函数（config.example.ps1 在此）

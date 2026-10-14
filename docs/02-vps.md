@@ -1,3 +1,5 @@
+> 本篇是 Runbook [阶段 B/F](00-runbook.md) 的深入参考；执行顺序见 Runbook。
+
 # VPS 服务端部署
 
 > 前置阅读：[01-architecture.md](01-architecture.md)
