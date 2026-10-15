@@ -13,7 +13,11 @@ $ErrorActionPreference = 'Stop'
 
 $Queue = ('\\wsl.localhost\{0}\tmp\claude-editor-requests' -f $WslDistro)
 $GuestRoot = ('\\wsl.localhost\{0}' -f $WslDistro)
-$Code = $VsCodePath
+# Editor is configurable (config.ps1): any editor that either supports a blocking
+# launch flag or runs as its own process per invocation. Defaults below match the
+# historical VS Code behavior when $EditorPath/$EditorArgs are not configured.
+$EditorExecutable = if (Get-Variable -Name 'EditorPath' -ErrorAction SilentlyContinue) { $EditorPath } else { $VsCodePath }
+$EditorSwitches = if (Get-Variable -Name 'EditorArgs' -ErrorAction SilentlyContinue) { @($EditorArgs) } else { @('--wait', '--new-window', '--disable-extensions') }
 $AllowedGuestPrefix = '/tmp/claude-1000/claude-prompt-'
 $AllowedGuestSuffix = '.md'
 
@@ -70,7 +74,7 @@ function Invoke-EditorRequest {
         $promptPath = Resolve-PromptPath $request.path
         if (-not (Test-Path -LiteralPath $promptPath -PathType Leaf)) { throw 'prompt missing' }
         if ((Get-Item -LiteralPath $promptPath).Length -gt 1MB) { throw 'prompt too large' }
-        if (-not (Test-Path -LiteralPath $Code -PathType Leaf)) { throw 'editor missing' }
+        if (-not (Test-Path -LiteralPath $EditorExecutable -PathType Leaf)) { throw 'editor missing' }
         $originalHash = (Get-FileHash -LiteralPath $promptPath -Algorithm SHA256).Hash
         $work = Join-Path ([IO.Path]::GetTempPath()) ('claude-prompt-edit-' + [guid]::NewGuid().ToString('N'))
         [void][IO.Directory]::CreateDirectory($work)
@@ -94,10 +98,12 @@ function Invoke-EditorRequest {
 
     if (-not $claimed) { return }
     try {
-        # Code sees a Windows-local copy, so it cannot wake WSL via UNC watches.
-        $arguments = @('--wait', '--new-window', '--disable-extensions', $localPath)
+        # The editor sees a Windows-local copy, so it cannot wake WSL via UNC watches.
+        # Editors with exit-code semantics (e.g. Zed) report non-zero when closed
+        # without saving; $completed then stays false and nothing is written back.
+        $arguments = @($EditorSwitches) + $localPath
         $argumentLine = (@($arguments | ForEach-Object { ConvertTo-NativeArgument $_ }) -join ' ')
-        $process = Start-Process -FilePath $Code -ArgumentList $argumentLine -PassThru
+        $process = Start-Process -FilePath $EditorExecutable -ArgumentList $argumentLine -PassThru
         try { $process.WaitForExit(); $completed = ($process.ExitCode -eq 0) }
         finally { $process.Dispose() }
     }

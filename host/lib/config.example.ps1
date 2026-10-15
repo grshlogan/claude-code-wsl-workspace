@@ -30,10 +30,14 @@ $VpsSshFingerprint = ''
 # (for example a local model-API bridge). Leave empty if you have none.
 $BridgeStopScript = ''
 
-# VS Code executable used by the prompt-only editor bridge (optional feature).
-# The bridge only edits temporary Claude prompt files inside the guest; it is
-# not a remote development service.
-$VsCodePath = 'C:\Program Files\Microsoft VS Code\Code.exe'
+# Editor used by the prompt-only editor bridge (optional feature).
+# Any editor works if it either supports a blocking launch flag or runs as its
+# own process per invocation. Defaults below match historical VS Code behavior.
+$EditorPath = 'C:\Program Files\Microsoft VS Code\Code.exe'
+$EditorArgs = @('--wait', '--new-window', '--disable-extensions')
+# Zed example (used on the reference host):
+#   $EditorPath = 'E:\DEV\Zed\bin\zed.exe'
+#   $EditorArgs = @('-w')
 
 # .wslconfig resource settings used by the network-test watchdog when it must
 # restore the offline bootstrap state. Adjust to your hardware.
