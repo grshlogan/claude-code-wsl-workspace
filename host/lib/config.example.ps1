@@ -7,8 +7,10 @@
 # and fall back to this template (with the RFC 5737 documentation IP)
 # otherwise, so the scripts are runnable out of the box for dry-run inspection.
 
-# WSL2 distribution name of the Debian 12 client.
-$WslDistro = 'claude-debian12'
+# WSL2 distribution name — the instance this suite manages. Any name works:
+# every script reads it from here. The reference machine uses 'claude-debian12'
+# (see the README description line).
+$WslDistro = '<your-distro-name>'
 
 # Unprivileged Linux user inside the client and its home directory.
 $LinuxUser = 'claude'

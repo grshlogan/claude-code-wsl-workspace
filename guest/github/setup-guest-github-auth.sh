@@ -195,8 +195,21 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/guest-keyring.sh"
 ENV_FILE=/dev/null
 
-if [[ "$(id -un)" != claude || "${WSL_DISTRO_NAME:-}" != claude-debian12 ]]; then
-  warn "Run this wizard inside claude-debian12 as user claude; it will not configure Windows GitHub credentials."
+# The wizard rewrites Windows-side credential state, so it refuses to run
+# outside a real WSL2 guest. Owners may pin the expected distro/user via
+# GITHUB_AUTH_EXPECTED_DISTRO / GITHUB_AUTH_EXPECTED_USER (defaults accept
+# any WSL distribution); instance names are owner-configured, not project
+# constants.
+if [[ -z "${WSL_DISTRO_NAME:-}" ]]; then
+  warn 'Run this wizard inside a WSL2 distribution; it will not configure Windows GitHub credentials.'
+  exit 1
+fi
+if [[ -n "${GITHUB_AUTH_EXPECTED_DISTRO:-}" && "${WSL_DISTRO_NAME}" != "${GITHUB_AUTH_EXPECTED_DISTRO}" ]]; then
+  warn "This wizard is pinned to ${GITHUB_AUTH_EXPECTED_DISTRO}; refusing to run inside ${WSL_DISTRO_NAME}."
+  exit 1
+fi
+if [[ -n "${GITHUB_AUTH_EXPECTED_USER:-}" && "$(id -un)" != "${GITHUB_AUTH_EXPECTED_USER}" ]]; then
+  warn "Expected user was ${GITHUB_AUTH_EXPECTED_USER}; refusing to run as $(id -un)."
   exit 1
 fi
 case "${1:-}" in
