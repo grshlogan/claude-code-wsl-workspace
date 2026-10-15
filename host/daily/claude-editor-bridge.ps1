@@ -3,6 +3,7 @@ param(
     [switch]$Watch,
     [switch]$Once,
     [int]$PollMilliseconds = 1000,
+    [switch]$Ensure,
     [switch]$FunctionsOnly
 )
 
@@ -173,12 +174,43 @@ function Invoke-EditorPoll {
 }
 
 if ($FunctionsOnly) { return }
+
+# Design constraint carried over from the beellama-node bridge: this watcher
+# must NEVER wake a stopped distribution. Every guest probe is therefore
+# either pure Win32 or `wsl --list --running` enumeration (non-waking), and
+# UNC queue reads happen only after the distro is confirmed running.
+
+if ($Ensure) {
+    # Idempotent self-heal: exit when a watcher is already alive, otherwise
+    # spawn one detached. Called from start-claude-session and the logon task
+    # so Ctrl+G never falls back to guest nano after a bridge death.
+    $self = $PSCommandPath
+    $others = @(Get-CimInstance Win32_Process -Filter "name='powershell.exe'" |
+        Where-Object { $_.ProcessId -ne $PID -and
+                       $_.CommandLine -like ('*{0}*' -f $self) -and
+                       $_.CommandLine -like '*-Watch*' })
+    if ($others.Count -gt 0) { exit 0 }
+    Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $self, '-Watch')
+    exit 0
+}
+
 if (-not $Watch -and -not $Once) { $Once = $true }
 $previousState = ''
+$waitingSleepMs = 500
 while ($true) {
     try { $state = Invoke-EditorPoll }
     catch { $state = 'poll-error' }
-    if ($state -ne $previousState) { Write-EditorEvent $state; $previousState = $state }
+    if ($state -ne $previousState) { Write-EditorEvent $state; $previousState = $state; $waitingSleepMs = 500 }
     if ($Once) { break }
-    Start-Sleep -Milliseconds ([Math]::Max(500, $PollMilliseconds))
+    if ($state -eq 'waiting-for-guest') {
+        # Stopped guest: back off exponentially (cap 15s). Enumeration is
+        # non-waking, but there is no reason to churn wsl.exe every second
+        # while nobody is using the distribution.
+        $waitingSleepMs = [Math]::Min($waitingSleepMs * 2, 15000)
+        Start-Sleep -Milliseconds $waitingSleepMs
+    }
+    else {
+        Start-Sleep -Milliseconds ([Math]::Max(500, $PollMilliseconds))
+    }
 }

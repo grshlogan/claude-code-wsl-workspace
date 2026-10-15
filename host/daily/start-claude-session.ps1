@@ -279,6 +279,20 @@ Remove-Item -LiteralPath $PausePath -Force -ErrorAction SilentlyContinue
 Write-Host '[PASS] All startup gates passed.' -ForegroundColor Green
 }
 finally { Exit-ClaudeLifecycle $lifecycle }
+
+# Fire-and-forget editor bridge self-heal (Ctrl+G convenience; failure is
+# tolerated because the guest wrapper falls back to nano on its own).
+$bridgeScript = Join-Path $ScriptRoot 'claude-editor-bridge.ps1'
+if (Test-Path -LiteralPath $bridgeScript -PathType Leaf) {
+    try {
+        & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') `
+            -NoProfile -ExecutionPolicy Bypass -File $bridgeScript -Ensure | Out-Null
+    }
+    catch {
+        Write-Host '[INFO] Editor bridge could not be ensured; Ctrl+G falls back to guest nano.' -ForegroundColor DarkGray
+    }
+}
+
 if ($CheckOnly) {
     Write-Host '[INFO] CheckOnly requested; the interactive WSL shell was not opened.'
     exit 0

@@ -75,6 +75,9 @@ function Invoke-NativeBounded {
 }
 
 function Test-ClaudeDistroRunning {
+    # Non-waking probe: `--list --running` only enumerates. Invocations like
+    # `wsl -d <distro> -e ...` would auto-start a stopped distribution and are
+    # forbidden here (watchers must stay passive while the guest is stopped).
     $distroName = 'claude-debian12'
     if (Get-Variable -Name 'WslDistro' -ErrorAction SilentlyContinue) { $distroName = $WslDistro }
     $result = Invoke-NativeBounded -FilePath 'wsl.exe' -Arguments @('--list', '--running', '--quiet') -UnicodeOutput
