@@ -61,7 +61,7 @@ powershell -Command "Start-Process powershell -Verb RunAs -ArgumentList '-NoProf
   以及唯一一条 Allow（UDP → `$VpsEndpointIp:$VpsWgPort`）
 - 规则范围根据 `config.ps1` 自动计算，无需手写 IP
 - 设置 WSL 作用域默认策略：入站/出站 Block、loopback 关闭
-- 最后自动运行 `setuperify-wsl-guard.ps1` 自检，输出 `HOST_GATE_STATIC_OK` 即通过
+- 最后自动运行 `setup\verify-wsl-guard.ps1` 自检，输出 `HOST_GATE_STATIC_OK` 即通过
 
 ## 5. 验证门卫
 
