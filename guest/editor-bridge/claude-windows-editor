@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Guest-side half of the editor bridge: spawned as Claude Code's $EDITOR,
+# it drops a request into /tmp/claude-editor-requests and waits for the
+# Windows-side bridge (claude-editor-bridge.ps1 -Watch) to edit the file
+# with the configured GUI editor, falling back to nano when no watcher
+# claims it within 20s. Accepts both argument styles:
+#   <path>               (legacy)
+#   -g <path>:<line>     (Claude >=2.1 whitelisted-GUI convention)
+# Deployed at /home/claude/.local/bin/claude-windows-editor
+# (owner claude, mode 0700). Paired with the /usr/local/bin/codium shim
+# that puts it under Claude Code's GUI-editor whitelist.
+
+set -u
+
+prompt_file=${1:-}
+case "${1:-}" in
+  -g)
+    # Claude Code >=2.1 spawns whitelisted-GUI editors as `-g <path>:<line>`:
+    # strip the position suffix and continue with the bare path.
+    prompt_file=${2%%:*}
+    ;;
+esac
+mkdir -p "$HOME/.local/state" 2>/dev/null
+printf '%s inv \n' "$(date -Is)" >> "$HOME/.local/state/claude-editor-wrapper.log" 2>/dev/null
+case "$prompt_file" in
+  /tmp/claude-1000/claude-prompt-*.md) ;;
+  *)
+    exec /usr/bin/nano -- "$prompt_file"
+    ;;
+esac
+
+if [[ ! -f "$prompt_file" ]]; then
+  exec /usr/bin/nano -- "$prompt_file"
+fi
+
+queue=/tmp/claude-editor-requests
+if ! mkdir -p "$queue" 2>/dev/null || ! chmod 700 "$queue" 2>/dev/null; then
+  exec /usr/bin/nano -- "$prompt_file"
+fi
+
+id="request-$(date +%s)-$$-${RANDOM}"
+base="$queue/$id"
+ready="$base.ready"
+active="$base.active"
+done="$base.done"
+error="$base.error"
+tmp="$base.tmp"
+
+cleanup() {
+  rm -f -- "$tmp" "$ready" "$active" "$done" "$error"
+}
+trap cleanup EXIT INT TERM
+
+# The path is constrained above and contains no JSON metacharacters.
+printf '{"id":"%s","path":"%s"}\n' "$id" "$prompt_file" > "$tmp" 2>/dev/null || exec /usr/bin/nano -- "$prompt_file"
+if ! mv -- "$tmp" "$ready" 2>/dev/null; then
+  exec /usr/bin/nano -- "$prompt_file"
+fi
+
+# If no Windows watcher is running, fail closed to a local editor instead of
+# leaving Claude Code waiting indefinitely. Once a watcher claims the request,
+# allow the user time to finish in VS Code.
+claim_deadline=$(( $(date +%s) + 20 ))
+while [[ ! -e "$done" && ! -e "$error" && -e "$ready" && ! -e "$active" ]]; do
+  if (( $(date +%s) >= claim_deadline )); then
+    rm -f -- "$ready"
+    printf '%s\n' 'Windows VS Code bridge is not running; falling back to guest nano.' >&2
+printf '%s claim-timeout \n' "$(date -Is)" >> "$HOME/.local/state/claude-editor-wrapper.log" 2>/dev/null
+    exec /usr/bin/nano -- "$prompt_file"
+  fi
+  sleep 0.2
+done
+
+if [[ -e "$error" ]]; then
+  printf '%s\n' 'Windows VS Code bridge failed; falling back to guest nano.' >&2
+  exec /usr/bin/nano -- "$prompt_file"
+fi
+
+# The host watcher writes .done only after Code.exe --wait returns.
+printf '%s claimed \n' "$(date -Is)" >> "$HOME/.local/state/claude-editor-wrapper.log" 2>/dev/null
+while [[ ! -e "$done" && ! -e "$error" ]]; do
+  sleep 0.2
+done
+
+if [[ -e "$error" ]]; then
+  printf '%s\n' 'Windows VS Code bridge failed; falling back to guest nano.' >&2
+  exec /usr/bin/nano -- "$prompt_file"
+fi
+
+exit 0
