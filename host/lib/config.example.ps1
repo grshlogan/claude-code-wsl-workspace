@@ -31,13 +31,14 @@ $VpsSshFingerprint = ''
 $BridgeStopScript = ''
 
 # Editor used by the prompt-only editor bridge (optional feature).
-# Any editor works if it either supports a blocking launch flag or runs as its
-# own process per invocation. Defaults below match historical VS Code behavior.
+# Any editor works if it either supports a blocking launch flag or runs as
+# its own process per invocation (the bridge waits on process exit).
 $EditorPath = 'C:\Program Files\Microsoft VS Code\Code.exe'
 $EditorArgs = @('--wait', '--new-window', '--disable-extensions')
-# Zed example (used on the reference host):
-#   $EditorPath = 'E:\DEV\Zed\bin\zed.exe'
-#   $EditorArgs = @('-w')
+# Lite XL example (used on the reference host; no wait flag needed):
+#   $EditorPath = 'E:\DEV\LiteXL\lite-xl.exe'; $EditorArgs = @()
+# Zed example (blocks via flag; exit code reflects save state):
+#   $EditorPath = 'E:\DEV\Zed\bin\zed.exe'; $EditorArgs = @('-w')
 
 # .wslconfig resource settings used by the network-test watchdog when it must
 # restore the offline bootstrap state. Adjust to your hardware.
