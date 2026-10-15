@@ -105,10 +105,10 @@ function Invoke-EditorRequest {
         $arguments = @($EditorSwitches) + $localPath
         $argumentLine = (@($arguments | ForEach-Object { ConvertTo-NativeArgument $_ }) -join ' ')
         $process = Start-Process -FilePath $EditorExecutable -ArgumentList $argumentLine -PassThru
-        try { $process.WaitForExit(); $completed = ($process.ExitCode -eq 0) }
+        try { $process.WaitForExit(); $completed = ($process.ExitCode -eq 0); $exitCode = $process.ExitCode }
         finally { $process.Dispose() }
     }
-    catch { Write-EditorEvent 'editor-failed' }
+    catch { Write-EditorEvent 'editor-failed'; $claimFailureReason = $_.Exception.Message }
 
     $mutex = Enter-ClaudeLifecycle -TimeoutMilliseconds 300000
     try {
@@ -117,19 +117,31 @@ function Invoke-EditorRequest {
         if ($null -ne $mutex -and (Test-EditorGuestAvailable) -and
             (Test-Path -LiteralPath $activePath -PathType Leaf)) {
             try {
-                if (-not $completed -or (Get-Item -LiteralPath $localPath).Length -gt 1MB -or
-                    (Get-FileHash -LiteralPath $promptPath -Algorithm SHA256).Hash -ne $originalHash) {
-                    throw 'editor failed or original changed'
+                if (-not $completed) { throw ('editor exit code was ' + $exitCode) }
+                if ((Get-Item -LiteralPath $localPath).Length -gt 1MB) { throw 'edited prompt exceeds 1MB' }
+                if ((Get-FileHash -LiteralPath $promptPath -Algorithm SHA256).Hash -ne $originalHash) {
+                    throw 'guest prompt file changed while editing'
                 }
                 $temporaryId = [guid]::NewGuid().ToString('N')
                 $temporaryGuest = $promptPath + '.editor-' + $temporaryId
                 try {
-                    Copy-Item -LiteralPath $localPath -Destination $temporaryGuest
-                    $permissions = Invoke-NativeBounded -FilePath 'wsl.exe' -TimeoutSeconds 10 -Arguments @(
-                        '-d', $WslDistro, '-u', 'claude', '--exec', 'chmod', '600', '--',
-                        ($request.path + '.editor-' + $temporaryId))
-                    if ($permissions.ExitCode -ne 0) { throw 'prompt permissions could not be restricted' }
-                    Move-Item -LiteralPath $temporaryGuest -Destination $promptPath -Force
+                    # UNC writes over \\wsl.localhost are occasionally transient
+                    # (P9 hiccup): retry once after a short pause before failing.
+                    $lastError = $null
+                    foreach ($attempt in 1, 2) {
+                        try {
+                            Copy-Item -LiteralPath $localPath -Destination $temporaryGuest
+                            $permissions = Invoke-NativeBounded -FilePath 'wsl.exe' -TimeoutSeconds 10 -Arguments @(
+                                '-d', $WslDistro, '-u', 'claude', '--exec', 'chmod', '600', '--',
+                                ($request.path + '.editor-' + $temporaryId))
+                            if ($permissions.ExitCode -ne 0) { throw 'prompt permissions could not be restricted' }
+                            Move-Item -LiteralPath $temporaryGuest -Destination $promptPath -Force
+                            $lastError = $null
+                            break
+                        }
+                        catch { $lastError = $_.Exception.Message; Start-Sleep -Milliseconds 1500 }
+                    }
+                    if ($null -ne $lastError) { throw $lastError }
                 }
                 finally { Remove-Item -LiteralPath $temporaryGuest -Force -ErrorAction SilentlyContinue }
                 $writebackSucceeded = $true
@@ -137,8 +149,9 @@ function Invoke-EditorRequest {
                 Write-EditorEvent 'request-completed'
             }
             catch {
-                Set-Content -LiteralPath ([IO.Path]::ChangeExtension($activePath, '.error')) -Value 'editor bridge failed' -NoNewline -Encoding ascii
-                Write-EditorEvent 'request-writeback-failed'
+                $reason = $_.Exception.Message
+                Set-Content -LiteralPath ([IO.Path]::ChangeExtension($activePath, '.error')) -Value ('editor bridge failed: ' + $reason) -NoNewline -Encoding ascii
+                Write-EditorEvent ('request-writeback-failed: ' + $reason)
             }
             finally { Remove-Item -LiteralPath $activePath -Force -ErrorAction SilentlyContinue }
         }
